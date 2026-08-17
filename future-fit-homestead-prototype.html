@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Future-Fit Homestead — prototype</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #12100D;
+    --surface: #1B2019;
+    --surface-raised: #212820;
+    --border: #303B32;
+    --text-primary: #EDEAE0;
+    --text-muted: #8B958C;
+    --tier1: #C98A3B;
+    --tier2: #6B93A6;
+    --tier3: #83887F;
+    --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+  }
+
+  a { color: var(--tier1); }
+
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  .topbar {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .topbar h1 {
+    font-size: 15px; font-weight: 600; letter-spacing: 0.02em;
+    margin: 0; text-transform: uppercase;
+  }
+  .topbar .sample-badge {
+    font-family: var(--font-mono); font-size: 11px; color: var(--tier1);
+    border: 1px dashed var(--tier1); border-radius: 3px;
+    padding: 2px 7px; letter-spacing: 0.04em;
+  }
+  .topbar .tagline {
+    font-size: 12px; color: var(--text-muted); margin-left: auto;
+  }
+
+  .layout { display: flex; flex: 1; min-height: 0; }
+
+  .sidebar {
+    width: 300px; flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .sidebar h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-muted); margin: 0 0 12px;
+  }
+  .category-group { margin-bottom: 18px; }
+  .category-group summary {
+    font-size: 12px; font-weight: 600; color: var(--text-primary);
+    cursor: pointer; padding: 4px 0; list-style: none;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .category-group summary::before { content: '▸'; color: var(--text-muted); font-size: 10px; transition: transform 0.15s; }
+  .category-group[open] summary::before { transform: rotate(90deg); }
+  .category-group summary::-webkit-details-marker { display: none; }
+
+  .layer-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 4px 6px 14px;
+    font-size: 13px;
+    border-radius: 4px;
+  }
+  .layer-row:hover { background: var(--surface-raised); }
+  .layer-row input[type=checkbox] { accent-color: var(--tier1); width: 14px; height: 14px; flex-shrink: 0; }
+  .layer-row label { flex: 1; cursor: pointer; }
+  .layer-row .not-wired { color: var(--text-muted); font-style: italic; }
+
+  .tier-mark {
+    width: 16px; height: 0; border-top-width: 2px; border-top-style: solid;
+    flex-shrink: 0;
+  }
+  .tier-mark.t1 { border-top-color: var(--tier1); border-top-style: solid; }
+  .tier-mark.t2 { border-top-color: var(--tier2); border-top-style: dashed; }
+  .tier-mark.t3 { border-top-color: var(--tier3); border-top-style: dotted; }
+
+  .map-wrap { position: relative; flex: 1; }
+  #map { position: absolute; inset: 0; }
+
+  .floating-card {
+    position: absolute;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+
+  .legend { bottom: 16px; left: 16px; }
+  .legend h3 { margin: 0 0 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+  .legend-row span.label { color: var(--text-muted); }
+
+  .score-card { bottom: 16px; right: 16px; width: 190px; }
+  .score-card h3 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+  .score-card .score-value {
+    font-family: var(--font-mono); font-size: 30px; font-weight: 500;
+    color: var(--tier1); line-height: 1.1;
+  }
+  .score-card .score-note { color: var(--text-muted); font-size: 11px; margin-top: 4px; }
+
+  .toast {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--surface-raised); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 14px; font-size: 12px;
+    color: var(--text-muted); opacity: 0; transition: opacity 0.2s;
+    pointer-events: none; font-family: var(--font-mono);
+  }
+  .toast.show { opacity: 1; }
+
+  input:focus-visible, summary:focus-visible { outline: 2px solid var(--tier1); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+
+  @media (max-width: 720px) {
+    .sidebar { width: 220px; padding: 12px; }
+    .topbar .tagline { display: none; }
+    .score-card { width: 150px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <h1>Future-Fit Homestead</h1>
+    <span class="sample-badge">PROTOTYPE — SAMPLE DATA</span>
+    <span class="tagline">Filter panel + confidence tiers + mock scoring, running on synthetic data until the pipeline has more layers in it</span>
+  </div>
+  <div class="layout">
+    <div class="sidebar">
+      <h2>Data layers</h2>
+      <div id="category-groups"></div>
+    </div>
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div class="toast" id="toast"></div>
+      <div class="floating-card legend">
+        <h3>Confidence tier</h3>
+        <div class="legend-row"><span class="tier-mark t1"></span><span class="label">Tier 1 — physical, high confidence</span></div>
+        <div class="legend-row"><span class="tier-mark t2"></span><span class="label">Tier 2 — resource, medium confidence</span></div>
+        <div class="legend-row"><span class="tier-mark t3"></span><span class="label">Tier 3 — social/policy, directional only</span></div>
+      </div>
+      <div class="floating-card score-card">
+        <h3>Sample parcel score</h3>
+        <div class="score-value" id="score-value">50</div>
+        <div class="score-note">Mock weights, checked layers only — not the real scoring engine yet</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+  // Point this at your running API (see api/main.py) to replace sample data
+  // with the real pipeline output. Falls back to the bundled sample layers
+  // below when unset or unreachable.
+  const API_BASE = null; // e.g. 'http://localhost:8000'
+
+  const CATEGORY_NAMES = {
+    D: 'Natural Hazards',
+    B: 'Water Resources',
+    M: 'Governance & Policy Trajectory',
+    A: 'Climate & Weather',
+    E: 'Vector-Borne Disease & Invasive Species',
+    C: 'Soil & Agriculture',
+    K: 'Insurance & Financial Risk',
+    L: 'Health & Community Services',
+  };
+
+  // Illustrative shapes only — rough rectangles over a placeholder region,
+  // not real hazard/aquifer/zoning boundaries. Swap for real GeoJSON once
+  // the corresponding layer has an ETL pipeline behind it.
+  const SAMPLE_GEOJSON = {
+    'wildfire-risk': {
+      type: 'Feature', properties: { name: 'Sample wildfire risk zone' },
+      geometry: { type: 'Polygon', coordinates: [[[-105.9,39.2],[-105.3,39.2],[-105.3,40.1],[-105.9,40.1],[-105.9,39.2]]] }
+    },
+    'aquifer-decline': {
+      type: 'Feature', properties: { name: 'Sample aquifer decline zone' },
+      geometry: { type: 'Polygon', coordinates: [[[-103.5,38.5],[-102.2,38.5],[-102.2,40.0],[-103.5,40.0],[-103.5,38.5]]] }
+    },
+    'zoning-trend': {
+      type: 'Feature', properties: { name: 'Sample zoning trend area' },
+      geometry: { type: 'Polygon', coordinates: [[[-105.5,37.2],[-104.3,37.2],[-104.3,38.2],[-105.5,38.2],[-105.5,37.2]]] }
+    },
+  };
+
+  // Fill these in from Supabase's dashboard: Connect button -> Framework tab
+  // shows both values ready to copy. Anon key is safe to expose client-side —
+  // it's the whole point of the read-only RLS policy in db/policies.sql.
+  const SUPABASE_URL = 'YOUR-PROJECT.supabase.co';
+  const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
+  const SUPABASE_CONFIGURED = !SUPABASE_URL.startsWith('YOUR');
+
+  // Categories with no real pipeline yet — always shown so the panel still
+  // reflects the full taxonomy, not just what's built so far.
+  const PLACEHOLDER_LAYERS = [
+    { id: 'extreme-heat',          category: 'A', name: 'Extreme Heat Days (projected)',   tier: 1, hasData: false },
+    { id: 'tick-range',            category: 'E', name: 'Tick Range Expansion',            tier: 1, hasData: false },
+    { id: 'prime-farmland',        category: 'C', name: 'Prime Farmland',                  tier: 1, hasData: false },
+    { id: 'insurance-nonrenewal',  category: 'K', name: 'Insurance Non-Renewal Rate',      tier: 2, hasData: false },
+    { id: 'hospital-proximity',    category: 'L', name: 'Rural Hospital Proximity',        tier: 1, hasData: false },
+  ];
+
+  // Used only if Supabase isn't configured yet, so this file still works
+  // standalone as a demo.
+  const OFFLINE_DEMO_LAYERS = [
+    { id: 'wildfire-risk',   category: 'D', name: 'Wildfire Risk (offline demo)',              tier: 1, hasData: true, scoreEffect: -22 },
+    { id: 'aquifer-decline', category: 'B', name: 'Aquifer Decline Zone (offline demo)',        tier: 2, hasData: true, scoreEffect: -8  },
+    { id: 'zoning-trend',    category: 'M', name: 'Zoning Permissiveness Trend (offline demo)', tier: 3, hasData: true, scoreEffect: +5  },
+  ];
+
+  let LAYERS = [...PLACEHOLDER_LAYERS]; // real layers get prepended once loaded
+
+  async function loadRealLayers() {
+    if (!SUPABASE_CONFIGURED) return OFFLINE_DEMO_LAYERS;
+    try {
+      const res = await fetch(
+        `https://${SUPABASE_URL}/rest/v1/layers?select=*&category=neq.REF`,
+        { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+      );
+      if (!res.ok) throw new Error(`Supabase returned ${res.status}`);
+      const rows = await res.json();
+      return rows.map((r) => ({
+        id: r.slug, category: r.category, name: r.name, tier: r.confidence_tier,
+        hasData: true, isReal: true,
+      }));
+    } catch (err) {
+      console.error('Could not load real layers from Supabase:', err);
+      return [];
+    }
+  }
+
+  async function fetchLayerGeoJSON(slug) {
+    const res = await fetch(
+      `https://${SUPABASE_URL}/rest/v1/features_geojson?select=geometry,properties&layer_slug=eq.${slug}`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    if (!res.ok) throw new Error(`Supabase returned ${res.status}`);
+    const rows = await res.json();
+    return {
+      type: 'FeatureCollection',
+      features: rows.map((r) => ({ type: 'Feature', geometry: r.geometry, properties: r.properties })),
+    };
+  }
+
+  const TIER_COLOR = { 1: 'var(--tier1)', 2: 'var(--tier2)', 3: 'var(--tier3)' };
+  const TIER_HEX   = { 1: '#C98A3B', 2: '#6B93A6', 3: '#83887F' };
+  const TIER_DASH  = { 1: null, 2: [3, 2], 3: [1, 2] }; // solid / dashed / dotted, echoing topo contour conventions
+
+  const checked = new Set();
+  const BASE_SCORE = 50;
+
+  function groupByCategory(layers) {
+    const groups = {};
+    for (const l of layers) {
+      (groups[l.category] ||= []).push(l);
+    }
+    return groups;
+  }
+
+  function renderSidebar() {
+    const container = document.getElementById('category-groups');
+    const groups = groupByCategory(LAYERS);
+    for (const [cat, layers] of Object.entries(groups)) {
+      const details = document.createElement('details');
+      details.className = 'category-group';
+      details.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = `${cat} — ${CATEGORY_NAMES[cat] || cat}`;
+      details.appendChild(summary);
+
+      for (const layer of layers) {
+        const row = document.createElement('div');
+        row.className = 'layer-row';
+        row.innerHTML = `
+          <input type="checkbox" id="chk-${layer.id}" data-id="${layer.id}">
+          <span class="tier-mark t${layer.tier}"></span>
+          <label for="chk-${layer.id}" class="${layer.hasData ? '' : 'not-wired'}">${layer.name}</label>
+        `;
+        details.appendChild(row);
+      }
+      container.appendChild(details);
+    }
+
+    container.querySelectorAll('input[type=checkbox]').forEach((el) => {
+      el.addEventListener('change', (e) => onToggle(e.target.dataset.id, e.target.checked));
+    });
+  }
+
+  function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+
+  function updateScore() {
+    let score = BASE_SCORE;
+    for (const id of checked) {
+      const layer = LAYERS.find((l) => l.id === id);
+      if (layer?.scoreEffect) score += layer.scoreEffect;
+    }
+    score = Math.max(0, Math.min(100, score));
+    document.getElementById('score-value').textContent = score;
+  }
+
+  let map;
+
+  async function onToggle(id, isChecked) {
+    const layer = LAYERS.find((l) => l.id === id);
+    if (isChecked) checked.add(id); else checked.delete(id);
+    updateScore();
+
+    if (!layer.hasData) {
+      showToast(isChecked ? `Layer scaffold ready — pipeline not run yet: ${id}` : '');
+      return;
+    }
+
+    const sourceId = `src-${id}`;
+    const fillId = `fill-${id}`;
+    const lineId = `line-${id}`;
+
+    if (isChecked) {
+      if (!map.getSource(sourceId)) {
+        let data;
+        if (layer.isReal) {
+          showToast(`Loading ${layer.name}…`);
+          try {
+            data = await fetchLayerGeoJSON(id);
+          } catch (err) {
+            showToast(`Couldn't load ${layer.name} — check Supabase config`);
+            console.error(err);
+            return;
+          }
+        } else {
+          data = SAMPLE_GEOJSON[id];
+        }
+        map.addSource(sourceId, { type: 'geojson', data });
+        map.addLayer({
+          id: fillId, type: 'fill', source: sourceId,
+          paint: { 'fill-color': TIER_HEX[layer.tier], 'fill-opacity': 0.18 },
+        });
+        map.addLayer({
+          id: lineId, type: 'line', source: sourceId,
+          paint: {
+            'line-color': TIER_HEX[layer.tier],
+            'line-width': 2,
+            ...(TIER_DASH[layer.tier] ? { 'line-dasharray': TIER_DASH[layer.tier] } : {}),
+          },
+        });
+      } else {
+        map.setLayoutProperty(fillId, 'visibility', 'visible');
+        map.setLayoutProperty(lineId, 'visibility', 'visible');
+      }
+    } else if (map.getLayer(fillId)) {
+      map.setLayoutProperty(fillId, 'visibility', 'none');
+      map.setLayoutProperty(lineId, 'visibility', 'none');
+    }
+  }
+
+  function initMap() {
+    map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://demotiles.maplibre.org/style.json',
+      center: [-105.4, 39.0],
+      zoom: 5.6,
+    });
+    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+    map.on('load', () => {
+      const marker = document.createElement('div');
+      marker.style.cssText = 'width:12px;height:12px;border-radius:50%;background:#C98A3B;border:2px solid #EDEAE0;box-shadow:0 0 0 2px rgba(0,0,0,0.4);';
+      new maplibregl.Marker({ element: marker })
+        .setLngLat([-105.6, 39.6])
+        .setPopup(new maplibregl.Popup({ offset: 14 }).setText('Sample parcel — watchlist demo'))
+        .addTo(map);
+    });
+  }
+
+  async function init() {
+    const realLayers = await loadRealLayers();
+    const realCategories = new Set(realLayers.filter((l) => l.isReal).map((l) => l.category));
+    LAYERS = [...realLayers, ...PLACEHOLDER_LAYERS.filter((l) => !realCategories.has(l.category))];
+
+    if (SUPABASE_CONFIGURED && realLayers.some((l) => l.isReal)) {
+      document.querySelector('.sample-badge').textContent = 'LIVE DATA';
+      document.querySelector('.tagline').textContent =
+        `Reading real data from Supabase — ${realLayers.filter((l) => l.isReal).length} layer(s) connected so far`;
+    }
+
+    renderSidebar();
+    updateScore();
+    initMap();
+  }
+
+  init();
+</script>
+</body>
+</html>

@@ -1,58 +1,71 @@
 # Future-Fit Homestead — starter scaffold
 
 Personal-first build of the site-selection platform. Companion to the design
-brief from earlier in this project (`future-fit-homestead-site-selection-brief.md`)
-— this repo makes Sections 3 and 5 of that doc real, starting with one region
-and one real data source, per the phased roadmap in 3.8.
+brief from earlier in this project — this repo makes Sections 3 and 5 of that
+doc real, one real data source at a time.
+
+**Current direction:** build, host, and test for personal use first; think
+about a public release later, once there's real data coverage worth showing
+anyone. No commercialization plans — this may end up fully open source.
+Deploying a custom API (Render) is deliberately deferred — Supabase's own
+read API is enough for now, and standing up more infrastructure before it's
+actually needed would be solving a problem we don't have yet.
 
 ## What's here — and tested
-- **`db/schema.sql`** — generic, metadata-driven schema (Design Principle 2.1:
-  every layer carries its own confidence tier, source, and vintage, not just a
-  value). Ran cleanly against a live PostGIS 16 instance.
-- **`etl/fetch_county_boundaries.py`** — base reference geometry (Census
-  cartographic boundaries) that other layers join against.
-- **`etl/fetch_fema_nri.py`** — first real pipeline, Category D (Natural
-  Hazards). Copy this pattern for the other ~65 layers in the taxonomy.
-- **`etl/test_parse.py`** — unit tests for the parsing/filtering logic, run
-  against a representative sample since this sandbox can't reach FEMA's
-  servers. All passing.
-- **`api/main.py`** — thin FastAPI layer: `/layers` (catalog) and
-  `/layers/{slug}/geojson` (straight into MapLibre via PostGIS's `ST_AsGeoJSON`).
-- **`frontend/index.html`** — MapLibre GL JS prototype: filter panel grouped by
-  taxonomy category, confidence-tier encoding on every layer, and a mock
-  scoring readout, running on sample data so the interaction pattern is real
-  today even before the pipeline has more than one layer in it.
+- **`db/schema.sql`** — generic, metadata-driven schema (every layer carries
+  its own confidence tier, source, and vintage). Runs cleanly against a live
+  PostGIS 16 instance.
+- **`db/policies.sql`** — read-only public access for `layers`/`features` via
+  Supabase's built-in REST API, plus a `features_geojson` view that
+  pre-converts PostGIS geometry to real GeoJSON (confirmed correct output)
+  so the frontend needs zero parsing logic.
+- **`etl/common.py`** — the shared pattern (caching, layer-catalog upsert,
+  clearing old features) extracted after the 2nd pipeline made the
+  copy-pasting obvious. Every pipeline since is noticeably shorter.
+- **`etl/fetch_county_boundaries.py`**, **`fetch_fema_nri.py`**,
+  **`fetch_drought_monitor.py`** — three real pipelines (Category REF, D, B)
+  built on that shared template. First two are proven live on real data;
+  the third's parsing logic is tested against a representative sample —
+  see the note in that file about confirming its exact source URL.
+- **`etl/test_parse.py`** — unit tests for the FEMA parsing/filtering logic.
+- **`frontend/index.html`** — MapLibre prototype that now queries Supabase's
+  REST API directly for real layers, and only falls back to sample data if
+  `SUPABASE_URL`/`SUPABASE_ANON_KEY` at the top of the script aren't filled
+  in yet.
+- **`.github/workflows/update-data.yml`** — runs all three pipelines on a
+  schedule. Confirmed working end to end against the live database.
 
-The full chain — schema → ETL parse/load → live database → API → GeoJSON out —
-was run end-to-end against synthetic data standing in for the real Census/FEMA
-downloads, from schema creation through to a working `/layers/{slug}/geojson`
-response. That part is genuinely proven, not just "looks right."
+The full chain — schema → ETL → live database → real map — has been proven
+piece by piece, either against a live local PostGIS instance in this sandbox
+or against your actual live Supabase project.
 
 ## What's NOT here yet
-- **Real network access to Census/FEMA from this sandbox was blocked** while
-  building this (locked to package registries only) — the ETL scripts are
-  real, correct code and the *logic* is tested, but they haven't been run
-  against a live download. Run them yourself once this is on your machine.
-- The scoring engine is a mock in the frontend, not wired to real weighted
-  math yet.
-- Every layer past the first one in the 14-category taxonomy.
+- `fetch_drought_monitor.py` hasn't run against the real live source yet —
+  confirm its URL first, same as any new pipeline.
+- The scoring engine is still a rough client-side approximation in the
+  frontend, not real weighted math against your actual scoring_weights table.
+- Everything past these 3 layers in the 14-category taxonomy (~65 to go).
+- Any public hosting beyond Supabase's own API — deliberately deferred.
 
 ## Setup
 1. `docker compose up -d` — starts local Postgres+PostGIS and loads `schema.sql`
+   (note: `policies.sql` needs real Supabase specifically — its RLS policies
+   reference the `anon` role, which only exists on Supabase, not plain Postgres)
 2. `pip install -r requirements.txt --break-system-packages`
-3. Edit `etl/config.py` if needed — `TARGET_STATE_FIPS` defaults to Colorado
-   (`08`) purely as a placeholder. Swap it for your actual candidate region.
-4. `cd etl && python fetch_county_boundaries.py`
-5. `python fetch_fema_nri.py` (confirm `SOURCE_URL` against
-   hazards.fema.gov/nri/data-resources first — see the comment in the file)
-6. `cd ../api && uvicorn main:app --reload`
-7. Open `frontend/index.html` in a browser — it runs standalone on sample data
-   out of the box, or point its `API_BASE` constant at `http://localhost:8000`
-   to wire it to your real data instead
+3. Edit `etl/config.py` if needed — `TARGET_STATE_FIPS` defaults to Colorado (`08`)
+4. Run the pipelines in order: `fetch_county_boundaries.py` →
+   `fetch_fema_nri.py` → `fetch_drought_monitor.py`
+5. In Supabase's SQL Editor, run `db/policies.sql` once
+6. In `frontend/index.html`, fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY`
+   (Supabase dashboard → Connect button → Framework tab shows both)
+7. Open `frontend/index.html` in a browser — it should show real data,
+   confirmed by the top bar switching from "PROTOTYPE — SAMPLE DATA" to
+   "LIVE DATA"
 
-## Recommended: move this into Claude Code next
-This scaffold proves the pattern and gets you a working first slice. The
-sustained build — adding the other ~65 layers, wiring the real scoring engine,
-eventually deploying — wants a persistent local project with full network
-access, which this chat sandbox doesn't have. Claude Code is the natural next
-environment for that.
+## Recommended: move the next ~65 layers into Claude Code
+This sandbox has no real network access — every pipeline here was written
+against documented source formats, not tested live, and gets its actual
+proof from GitHub Actions running it for real. Claude Code, with real
+internet access, can write and verify each new pipeline against its live
+source directly, which is a meaningfully faster loop for the volume of
+sources still ahead.

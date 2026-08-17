@@ -212,16 +212,64 @@
     },
   };
 
-  const LAYERS = [
-    { id: 'wildfire-risk',         category: 'D', name: 'Wildfire Risk',                  tier: 1, hasData: true,  scoreEffect: -22 },
-    { id: 'aquifer-decline',       category: 'B', name: 'Aquifer Decline Zone',            tier: 2, hasData: true,  scoreEffect: -8  },
-    { id: 'zoning-trend',          category: 'M', name: 'Zoning Permissiveness Trend',     tier: 3, hasData: true,  scoreEffect: +5  },
+  // Fill these in from Supabase's dashboard: Connect button -> Framework tab
+  // shows both values ready to copy. Anon key is safe to expose client-side —
+  // it's the whole point of the read-only RLS policy in db/policies.sql.
+  const SUPABASE_URL = 'YOUR-PROJECT.supabase.co';
+  const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
+  const SUPABASE_CONFIGURED = !SUPABASE_URL.startsWith('YOUR');
+
+  // Categories with no real pipeline yet — always shown so the panel still
+  // reflects the full taxonomy, not just what's built so far.
+  const PLACEHOLDER_LAYERS = [
     { id: 'extreme-heat',          category: 'A', name: 'Extreme Heat Days (projected)',   tier: 1, hasData: false },
     { id: 'tick-range',            category: 'E', name: 'Tick Range Expansion',            tier: 1, hasData: false },
     { id: 'prime-farmland',        category: 'C', name: 'Prime Farmland',                  tier: 1, hasData: false },
     { id: 'insurance-nonrenewal',  category: 'K', name: 'Insurance Non-Renewal Rate',      tier: 2, hasData: false },
     { id: 'hospital-proximity',    category: 'L', name: 'Rural Hospital Proximity',        tier: 1, hasData: false },
   ];
+
+  // Used only if Supabase isn't configured yet, so this file still works
+  // standalone as a demo.
+  const OFFLINE_DEMO_LAYERS = [
+    { id: 'wildfire-risk',   category: 'D', name: 'Wildfire Risk (offline demo)',              tier: 1, hasData: true, scoreEffect: -22 },
+    { id: 'aquifer-decline', category: 'B', name: 'Aquifer Decline Zone (offline demo)',        tier: 2, hasData: true, scoreEffect: -8  },
+    { id: 'zoning-trend',    category: 'M', name: 'Zoning Permissiveness Trend (offline demo)', tier: 3, hasData: true, scoreEffect: +5  },
+  ];
+
+  let LAYERS = [...PLACEHOLDER_LAYERS]; // real layers get prepended once loaded
+
+  async function loadRealLayers() {
+    if (!SUPABASE_CONFIGURED) return OFFLINE_DEMO_LAYERS;
+    try {
+      const res = await fetch(
+        `https://${SUPABASE_URL}/rest/v1/layers?select=*&category=neq.REF`,
+        { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+      );
+      if (!res.ok) throw new Error(`Supabase returned ${res.status}`);
+      const rows = await res.json();
+      return rows.map((r) => ({
+        id: r.slug, category: r.category, name: r.name, tier: r.confidence_tier,
+        hasData: true, isReal: true,
+      }));
+    } catch (err) {
+      console.error('Could not load real layers from Supabase:', err);
+      return [];
+    }
+  }
+
+  async function fetchLayerGeoJSON(slug) {
+    const res = await fetch(
+      `https://${SUPABASE_URL}/rest/v1/features_geojson?select=geometry,properties&layer_slug=eq.${slug}`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    if (!res.ok) throw new Error(`Supabase returned ${res.status}`);
+    const rows = await res.json();
+    return {
+      type: 'FeatureCollection',
+      features: rows.map((r) => ({ type: 'Feature', geometry: r.geometry, properties: r.properties })),
+    };
+  }
 
   const TIER_COLOR = { 1: 'var(--tier1)', 2: 'var(--tier2)', 3: 'var(--tier3)' };
   const TIER_HEX   = { 1: '#C98A3B', 2: '#6B93A6', 3: '#83887F' };
@@ -287,7 +335,7 @@
 
   let map;
 
-  function onToggle(id, isChecked) {
+  async function onToggle(id, isChecked) {
     const layer = LAYERS.find((l) => l.id === id);
     if (isChecked) checked.add(id); else checked.delete(id);
     updateScore();
@@ -303,7 +351,20 @@
 
     if (isChecked) {
       if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, { type: 'geojson', data: SAMPLE_GEOJSON[id] });
+        let data;
+        if (layer.isReal) {
+          showToast(`Loading ${layer.name}…`);
+          try {
+            data = await fetchLayerGeoJSON(id);
+          } catch (err) {
+            showToast(`Couldn't load ${layer.name} — check Supabase config`);
+            console.error(err);
+            return;
+          }
+        } else {
+          data = SAMPLE_GEOJSON[id];
+        }
+        map.addSource(sourceId, { type: 'geojson', data });
         map.addLayer({
           id: fillId, type: 'fill', source: sourceId,
           paint: { 'fill-color': TIER_HEX[layer.tier], 'fill-opacity': 0.18 },
@@ -345,9 +406,23 @@
     });
   }
 
-  renderSidebar();
-  updateScore();
-  initMap();
+  async function init() {
+    const realLayers = await loadRealLayers();
+    const realCategories = new Set(realLayers.filter((l) => l.isReal).map((l) => l.category));
+    LAYERS = [...realLayers, ...PLACEHOLDER_LAYERS.filter((l) => !realCategories.has(l.category))];
+
+    if (SUPABASE_CONFIGURED && realLayers.some((l) => l.isReal)) {
+      document.querySelector('.sample-badge').textContent = 'LIVE DATA';
+      document.querySelector('.tagline').textContent =
+        `Reading real data from Supabase — ${realLayers.filter((l) => l.isReal).length} layer(s) connected so far`;
+    }
+
+    renderSidebar();
+    updateScore();
+    initMap();
+  }
+
+  init();
 </script>
 </body>
 </html>

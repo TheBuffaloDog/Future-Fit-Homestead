@@ -18,12 +18,12 @@ before running.
 import csv
 import io
 import json
-import os
 
-import requests
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
-from config import DATABASE_URL, RAW_DATA_CACHE_DIR, TARGET_STATE_FIPS
+from common import (clear_features, county_geom_by_fips, fetch_and_cache,
+                     get_engine, upsert_layer)
+from config import RAW_DATA_CACHE_DIR, TARGET_STATE_FIPS
 
 NRI_VERSION = "v1.20"
 # Verify current link at https://hazards.fema.gov/nri/data-resources before running.
@@ -49,25 +49,9 @@ KEEP_COLUMNS = {
 }
 
 
-def fetch_and_cache() -> str:
-    cache_path = f"{RAW_DATA_CACHE_DIR}/nri_counties_{NRI_VERSION}.csv"
-    if os.path.exists(cache_path):
-        print(f"Using cached copy at {cache_path}")
-        with open(cache_path, "r", encoding="utf-8-sig") as f:
-            return f.read()
-
-    print(f"Downloading {SOURCE_URL}")
-    resp = requests.get(SOURCE_URL, timeout=60)
-    resp.raise_for_status()
-    os.makedirs(RAW_DATA_CACHE_DIR, exist_ok=True)
-    with open(cache_path, "w", encoding="utf-8") as f:
-        f.write(resp.text)
-    return resp.text
-
-
 def parse(raw_csv: str) -> list[dict]:
-    """Split out from fetch_and_cache() on purpose: this is the part testable
-    without a network call — see test_parse.py."""
+    """Split out on purpose: this is the part testable without a network
+    call — see test_parse.py."""
     reader = csv.DictReader(io.StringIO(raw_csv))
     rows = []
     for row in reader:
@@ -83,48 +67,25 @@ def parse(raw_csv: str) -> list[dict]:
 
 
 def load(rows: list[dict]):
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
     with engine.begin() as conn:
-        layer_id = conn.execute(
-            text(
-                """
-                INSERT INTO layers (slug, category, name, source_org, source_url,
-                                     confidence_tier, data_kind, vintage, unit, license)
-                VALUES (:slug, 'D', 'FEMA National Risk Index (county)', 'FEMA', :url,
-                        1, 'observed', :vintage, 'index score 0-100', 'Public domain')
-                ON CONFLICT (slug) DO UPDATE SET last_ingested_at = now()
-                RETURNING id
-                """
-            ),
-            {"slug": LAYER_SLUG, "url": SOURCE_URL, "vintage": "2025-12-01"},
-        ).scalar_one()
-
-        conn.execute(text("DELETE FROM features WHERE layer_id = :lid"), {"lid": layer_id})
+        layer_id = upsert_layer(
+            conn, slug=LAYER_SLUG, category="D", name="FEMA National Risk Index (county)",
+            source_org="FEMA", source_url=SOURCE_URL, confidence_tier=1,
+            data_kind="observed", vintage="2025-12-01", unit="index score 0-100",
+        )
+        clear_features(conn, layer_id)
 
         matched, unmatched = 0, 0
         for rec in rows:
-            geom = conn.execute(
-                text(
-                    """
-                    SELECT geom FROM features f
-                    JOIN layers l ON l.id = f.layer_id
-                    WHERE l.slug = 'census-county-boundaries'
-                      AND f.properties ->> 'fips' = :fips
-                    """
-                ),
-                {"fips": rec["fips"]},
-            ).scalar_one_or_none()
-
+            geom = county_geom_by_fips(conn, rec["fips"])
             if geom is None:
                 unmatched += 1
                 continue
-
             conn.execute(
                 text(
-                    """
-                    INSERT INTO features (layer_id, geom, properties)
-                    VALUES (:lid, :geom, CAST(:props AS JSONB))
-                    """
+                    "INSERT INTO features (layer_id, geom, properties) "
+                    "VALUES (:lid, :geom, CAST(:props AS JSONB))"
                 ),
                 {"lid": layer_id, "geom": geom, "props": json.dumps(rec)},
             )
@@ -137,4 +98,5 @@ def load(rows: list[dict]):
 
 
 if __name__ == "__main__":
-    load(parse(fetch_and_cache()))
+    raw = fetch_and_cache(SOURCE_URL, f"{RAW_DATA_CACHE_DIR}/nri_counties_{NRI_VERSION}.csv", binary=False)
+    load(parse(raw))

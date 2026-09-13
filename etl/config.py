@@ -11,6 +11,6 @@ DATABASE_URL = os.environ.get(
 # PLACEHOLDER — Colorado (FIPS 08), picked only as a stand-in so this scaffold
 # has something concrete to run against. Swap for your real candidate region,
 # or set to None to pull the whole country (much slower, much more data).
-TARGET_STATE_FIPS = os.environ.get("TARGET_STATE_FIPS", "08")
-TARGET_STATE_ABBR = os.environ.get("TARGET_STATE_ABBR", "CO")
+TARGET_STATE_FIPS = os.environ.get("TARGET_STATE_FIPS", None)
+TARGET_STATE_ABBR = os.environ.get("TARGET_STATE_ABBR", "us")
 RAW_DATA_CACHE_DIR = os.environ.get("RAW_DATA_CACHE_DIR", "./data/raw")

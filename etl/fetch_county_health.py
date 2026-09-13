@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from common import clear_features, county_geom_by_fips, get_engine, upsert_layer
 
-SOURCE_URL = "https://www.countyhealthrankings.org/sites/default/files/media/document/analytic_data2024.csv"
+SOURCE_URL = "https://www.countyhealthrankings.org/sites/default/files/media/document/analytic_data2025_v3.csv"
 LAYER_SLUG = "county-health-rankings"
 
 KEEP_COLUMNS = {

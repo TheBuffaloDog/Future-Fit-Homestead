@@ -37,3 +37,15 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python fetch_drought_monitor.py
+
+      - name: Fetch Plant Hardiness Zone
+        working-directory: etl
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python fetch_plant_hardiness.py
+
+      - name: Fetch County Health Rankings
+        working-directory: etl
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python fetch_county_health.py

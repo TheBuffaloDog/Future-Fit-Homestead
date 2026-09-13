@@ -2,7 +2,7 @@ name: Update data
 
 on:
   schedule:
-    - cron: "0 8 * * 1"   # every Monday, 8am UTC
+    - cron: "0 8 * * 1,4"   # Monday and Thursday, 8am UTC
   workflow_dispatch:        # adds a manual "Run workflow" button in GitHub's UI
 
 jobs:

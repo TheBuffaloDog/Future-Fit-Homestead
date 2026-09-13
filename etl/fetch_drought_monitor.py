@@ -1,6 +1,5 @@
-"""Fetches US Drought Monitor county stats via NDMC's real REST API
-(usdmdataservices.unl.edu) — the actual data endpoint, not the download
-page this pointed at before. Category B, Tier 1."""
+"""Fetches US Drought Monitor county stats for all 50 states via NDMC REST API.
+Loops state by state since the API doesn't support a national county pull."""
 import csv
 import io
 import json
@@ -10,57 +9,73 @@ from sqlalchemy import text
 
 from common import (clear_features, county_geom_by_fips, fetch_and_cache,
                      get_engine, upsert_layer)
-from config import RAW_DATA_CACHE_DIR, TARGET_STATE_ABBR
+from config import RAW_DATA_CACHE_DIR
 
 END = date.today()
 START = END - timedelta(days=14)
-SOURCE_URL = (
-    f"https://usdmdataservices.unl.edu/api/CountyStatistics/"
-    f"GetDroughtSeverityStatisticsByAreaPercent?aoi={TARGET_STATE_ABBR}"
-    f"&startdate={START.month}/{START.day}/{START.year}"
-    f"&enddate={END.month}/{END.day}/{END.year}&statisticsType=1"
-)
 LAYER_SLUG = "usdm-drought-county"
 
-KEEP_COLUMNS = {
-    "FIPS": "fips", "County": "county", "State": "state", "ValidStart": "week_of",
-    "None": "pct_no_drought", "D0": "pct_abnormally_dry", "D1": "pct_moderate_drought",
-    "D2": "pct_severe_drought", "D3": "pct_extreme_drought", "D4": "pct_exceptional_drought",
-}
+ALL_STATES = [
+    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
+    "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+    "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+    "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+    "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+]
 
 
-def parse(raw_csv: str) -> list[dict]:
-    reader = csv.DictReader(io.StringIO(raw_csv))
-    print(f"Columns returned: {reader.fieldnames}")
+def fetch_state(abbr: str) -> list[dict]:
+    url = (
+        f"https://usdmdataservices.unl.edu/api/CountyStatistics/"
+        f"GetDroughtSeverityStatisticsByAreaPercent?aoi={abbr}"
+        f"&startdate={START.month}/{START.day}/{START.year}"
+        f"&enddate={END.month}/{END.day}/{END.year}&statisticsType=1"
+    )
+    import requests
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    reader = csv.DictReader(io.StringIO(resp.text))
     latest = {}
     for row in reader:
         fips = (row.get("FIPS") or "").strip()
         if not fips:
             continue
-        rec = {dest: row.get(src, "") for src, dest in KEEP_COLUMNS.items()}
-        rec["fips"] = fips
-        latest[fips] = rec
+        latest[fips] = {
+            "fips": fips,
+            "county": row.get("County", ""),
+            "state": row.get("State", ""),
+            "week_of": row.get("ValidStart", ""),
+            "pct_no_drought": row.get("None", ""),
+            "pct_abnormally_dry": row.get("D0", ""),
+            "pct_moderate_drought": row.get("D1", ""),
+            "pct_severe_drought": row.get("D2", ""),
+            "pct_extreme_drought": row.get("D3", ""),
+            "pct_exceptional_drought": row.get("D4", ""),
+        }
     return list(latest.values())
 
 
-def load(rows: list[dict]):
+def load(all_rows: list[dict]):
     engine = get_engine()
     with engine.begin() as conn:
         layer_id = upsert_layer(
-            conn, slug=LAYER_SLUG, category="B", name="US Drought Monitor (county)",
-            source_org="National Drought Mitigation Center", source_url=SOURCE_URL,
+            conn, slug=LAYER_SLUG, category="B",
+            name="US Drought Monitor (county)",
+            source_org="National Drought Mitigation Center",
+            source_url="https://usdmdataservices.unl.edu/api/CountyStatistics/",
             confidence_tier=1, data_kind="observed", vintage=None,
             unit="percent of county area", notes="Updated weekly, Thursdays",
         )
         clear_features(conn, layer_id)
         matched, unmatched = 0, 0
-        for rec in rows:
+        for rec in all_rows:
             geom = county_geom_by_fips(conn, rec["fips"])
             if geom is None:
                 unmatched += 1
                 continue
             conn.execute(
-                text("INSERT INTO features (layer_id, geom, properties) VALUES (:lid, :geom, CAST(:props AS JSONB))"),
+                text("INSERT INTO features (layer_id, geom, properties) "
+                     "VALUES (:lid, :geom, CAST(:props AS JSONB))"),
                 {"lid": layer_id, "geom": geom, "props": json.dumps(rec)},
             )
             matched += 1
@@ -68,5 +83,14 @@ def load(rows: list[dict]):
 
 
 if __name__ == "__main__":
-    raw = fetch_and_cache(SOURCE_URL, f"{RAW_DATA_CACHE_DIR}/usdm_{TARGET_STATE_ABBR}_{END.isoformat()}.csv", binary=False)
-    load(parse(raw))
+    all_rows = []
+    for abbr in ALL_STATES:
+        print(f"Fetching {abbr}...")
+        try:
+            rows = fetch_state(abbr)
+            all_rows.extend(rows)
+            print(f"  {len(rows)} counties")
+        except Exception as e:
+            print(f"  ERROR: {e}")
+    print(f"Total: {len(all_rows)} counties across all states")
+    load(all_rows)

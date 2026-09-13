@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 from common import clear_features, fetch_and_cache, get_engine, upsert_layer
 
-SOURCE_URL = "https://planthardiness.ars.usda.gov/downloads/phzm_us_zip.zip"
+SOURCE_URL = "SOURCE_URL = "https://prism.oregonstate.edu/phzm/data/2023/phzm_us_zones_shp_2023.zip""
 LAYER_SLUG = "usda-plant-hardiness-zone"
 
 

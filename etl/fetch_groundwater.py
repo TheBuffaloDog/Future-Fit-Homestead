@@ -20,37 +20,37 @@ def fetch() -> list[dict]:
     resp = requests.get(SOURCE_URL, timeout=120)
     resp.raise_for_status()
     lines = resp.text.splitlines()
-    # RDB format: skip comment lines starting with #, then parse tab-delimited
     data_lines = [l for l in lines if not l.startswith("#") and l.strip()]
     if len(data_lines) < 3:
         print("No data returned")
         return []
     headers = data_lines[0].split("\t")
-    # Skip the format descriptor line (line index 1)
-    records = []
+    print(f"USGS headers: {headers[:10]}")  # debug — show first 10 column names
     seen_fips = {}
     for line in data_lines[2:]:
         fields = line.split("\t")
         if len(fields) < len(headers):
             continue
         row = dict(zip(headers, fields))
-        county_cd = (row.get("county_cd") or "").strip()
-        state_cd = (row.get("state_cd") or "").strip()
+        # USGS RDB uses site_no which encodes state+county differently
+        # Try common field names
+        county_cd = (row.get("county_cd") or row.get("county") or "").strip()
+        state_cd = (row.get("state_cd") or row.get("state") or "").strip()
         fips = f"{state_cd}{county_cd}".zfill(5)
         if not fips or len(fips) != 5:
             continue
-        lev_va = (row.get("lev_va") or "").strip()
+        lev_va = (row.get("lev_va") or row.get("value") or "").strip()
         if not lev_va:
             continue
         try:
             depth = float(lev_va)
         except ValueError:
             continue
-        # Keep median per county
         if fips not in seen_fips:
             seen_fips[fips] = []
         seen_fips[fips].append(depth)
 
+    records = []
     for fips, depths in seen_fips.items():
         median = sorted(depths)[len(depths) // 2]
         records.append({

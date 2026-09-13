@@ -164,19 +164,27 @@
     return res.ok ? res.json() : [];
   }
 
-  async function fetchGeoJSON(slug) {
-    const res = await fetch(
-      `https://${SUPABASE_URL}/rest/v1/features_geojson?select=geometry,properties&layer_slug=eq.${slug}&limit=5000`,
-      { headers: sbHeaders }
-    );
-    if (!res.ok) throw new Error(`${res.status}`);
-    const rows = await res.json();
+   async function fetchGeoJSON(slug) {
+    const pageSize = 1000;
+    let allRows = [];
+    let offset = 0;
+    while (true) {
+      const res = await fetch(
+        `https://${SUPABASE_URL}/rest/v1/features_geojson?select=geometry,properties&layer_slug=eq.${slug}&limit=${pageSize}&offset=${offset}`,
+        { headers: { ...sbHeaders, 'Range-Unit': 'items', 'Range': `${offset}-${offset + pageSize - 1}` } }
+      );
+      const rows = await res.json();
+      if (!rows.length) break;
+      allRows = allRows.concat(rows);
+      if (rows.length < pageSize) break;
+      offset += pageSize;
+    }
     return {
       type: 'FeatureCollection',
-      features: rows.map(r => ({ type: 'Feature', geometry: r.geometry, properties: r.properties })),
+      features: allRows.map(r => ({ type: 'Feature', geometry: r.geometry, properties: r.properties })),
     };
   }
-
+  
   // ── Sidebar ───────────────────────────────────────────────────────────────
   function buildSidebar(layers) {
     const all = [

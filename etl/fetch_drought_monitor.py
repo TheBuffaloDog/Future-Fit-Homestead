@@ -1,63 +1,46 @@
-"""
-Fetches US Drought Monitor county-level statistics — a Tier 1-2 water/climate
-layer, Category B. Weekly data, five drought categories (D0 abnormally dry
-through D4 exceptional drought) as percent of county area.
-
-Source: National Drought Mitigation Center (droughtmonitor.unl.edu), a joint
-NDMC/USDA/NOAA product. Verify the exact county-statistics endpoint at
-droughtmonitor.unl.edu/DmData/DataDownload/ComprehensiveStatistics.aspx before
-running — there's a documented "USDM REST services" option per NDMC, but this
-sandbox couldn't reach the site to confirm the exact request format, same
-caveat as every other source built in this sandbox rather than in an
-environment with real network access.
-
-This is the second pipeline built directly on common.py (after the FEMA NRI
-refactor) — notice how much shorter it is than the original FEMA script,
-which is the whole point of extracting that template.
-"""
+"""Fetches US Drought Monitor county stats via NDMC's real REST API
+(usdmdataservices.unl.edu) — the actual data endpoint, not the download
+page this pointed at before. Category B, Tier 1."""
 import csv
 import io
 import json
+from datetime import date, timedelta
 
 from sqlalchemy import text
 
 from common import (clear_features, county_geom_by_fips, fetch_and_cache,
                      get_engine, upsert_layer)
-from config import RAW_DATA_CACHE_DIR, TARGET_STATE_FIPS
+from config import RAW_DATA_CACHE_DIR, TARGET_STATE_ABBR
 
-# Verify against droughtmonitor.unl.edu/DmData/DataDownload/ComprehensiveStatistics.aspx
-SOURCE_URL = "https://droughtmonitor.unl.edu/DmData/DataDownload/ComprehensiveStatistics.aspx"
+END = date.today()
+START = END - timedelta(days=14)
+SOURCE_URL = (
+    f"https://usdmdataservices.unl.edu/api/CountyStatistics/"
+    f"GetDroughtSeverityStatisticsByAreaPercent?aoi={TARGET_STATE_ABBR}"
+    f"&startdate={START.month}/{START.day}/{START.year}"
+    f"&enddate={END.month}/{END.day}/{END.year}&statisticsType=1"
+)
 LAYER_SLUG = "usdm-drought-county"
 
-# Expected shape based on NDMC's documented county statistics format — confirm
-# exact column names against a real downloaded file before relying on this.
 KEEP_COLUMNS = {
-    "FIPS": "fips",
-    "County": "county",
-    "State": "state",
-    "ValidStart": "week_of",
-    "None": "pct_no_drought",
-    "D0": "pct_abnormally_dry",
-    "D1": "pct_moderate_drought",
-    "D2": "pct_severe_drought",
-    "D3": "pct_extreme_drought",
-    "D4": "pct_exceptional_drought",
+    "FIPS": "fips", "County": "county", "State": "state", "ValidStart": "week_of",
+    "None": "pct_no_drought", "D0": "pct_abnormally_dry", "D1": "pct_moderate_drought",
+    "D2": "pct_severe_drought", "D3": "pct_extreme_drought", "D4": "pct_exceptional_drought",
 }
 
 
 def parse(raw_csv: str) -> list[dict]:
     reader = csv.DictReader(io.StringIO(raw_csv))
-    rows = []
+    print(f"Columns returned: {reader.fieldnames}")
+    latest = {}
     for row in reader:
         fips = (row.get("FIPS") or "").strip()
         if not fips:
             continue
-        if TARGET_STATE_FIPS and not fips.startswith(TARGET_STATE_FIPS):
-            continue
-        record = {dest: row.get(src, "") for src, dest in KEEP_COLUMNS.items()}
-        record["fips"] = fips
-        rows.append(record)
-    return rows
+        rec = {dest: row.get(src, "") for src, dest in KEEP_COLUMNS.items()}
+        rec["fips"] = fips
+        latest[fips] = rec
+    return list(latest.values())
 
 
 def load(rows: list[dict]):
@@ -70,7 +53,6 @@ def load(rows: list[dict]):
             unit="percent of county area", notes="Updated weekly, Thursdays",
         )
         clear_features(conn, layer_id)
-
         matched, unmatched = 0, 0
         for rec in rows:
             geom = county_geom_by_fips(conn, rec["fips"])
@@ -78,20 +60,13 @@ def load(rows: list[dict]):
                 unmatched += 1
                 continue
             conn.execute(
-                text(
-                    "INSERT INTO features (layer_id, geom, properties) "
-                    "VALUES (:lid, :geom, CAST(:props AS JSONB))"
-                ),
+                text("INSERT INTO features (layer_id, geom, properties) VALUES (:lid, :geom, CAST(:props AS JSONB))"),
                 {"lid": layer_id, "geom": geom, "props": json.dumps(rec)},
             )
             matched += 1
-
-    print(
-        f"Loaded {matched} counties into '{LAYER_SLUG}' "
-        f"({unmatched} had no matching boundary — run fetch_county_boundaries.py first)"
-    )
+    print(f"Loaded {matched} counties ({unmatched} unmatched)")
 
 
 if __name__ == "__main__":
-    raw = fetch_and_cache(SOURCE_URL, f"{RAW_DATA_CACHE_DIR}/usdm_counties.csv", binary=False)
+    raw = fetch_and_cache(SOURCE_URL, f"{RAW_DATA_CACHE_DIR}/usdm_{TARGET_STATE_ABBR}_{END.isoformat()}.csv", binary=False)
     load(parse(raw))

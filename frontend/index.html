@@ -166,7 +166,7 @@
 
   async function fetchGeoJSON(slug) {
     const res = await fetch(
-      `https://${SUPABASE_URL}/rest/v1/features_geojson?select=geometry,properties&layer_slug=eq.${slug}`,
+      `https://${SUPABASE_URL}/rest/v1/features_geojson?select=geometry,properties&layer_slug=eq.${slug}&limit=5000`,
       { headers: sbHeaders }
     );
     if (!res.ok) throw new Error(`${res.status}`);

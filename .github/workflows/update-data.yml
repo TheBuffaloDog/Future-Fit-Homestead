@@ -50,7 +50,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python fetch_county_health.py
 
-              - name: Fetch USGS Groundwater Levels
+      - name: Fetch USGS Groundwater Levels
         working-directory: etl
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

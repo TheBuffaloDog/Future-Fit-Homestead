@@ -53,12 +53,12 @@ def parse(raw_csv: str) -> list[dict]:
     """Split out on purpose: this is the part testable without a network
     call — see test_parse.py."""
     reader = csv.DictReader(io.StringIO(raw_csv))
+    print(f"First row sample: {next(iter(reader), None)}")
+    reader = csv.DictReader(io.StringIO(raw_csv))  # reset after peek
     rows = []
     for row in reader:
         fips = (row.get("STCOFIPS") or "").strip()
         if not fips:
-            continue
-        if TARGET_STATE_FIPS and not fips.startswith(TARGET_STATE_FIPS):
             continue
         record = {dest: row.get(src, "") for src, dest in KEEP_COLUMNS.items()}
         record["fips"] = fips

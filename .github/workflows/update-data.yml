@@ -23,6 +23,21 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python fetch_county_boundaries.py
 
+      - name: Fetch county boundaries
+        working-directory: etl
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python fetch_county_boundaries.py
+
+      - name: Wait for boundaries to commit
+        run: sleep 10
+
+      - name: Fetch FEMA National Risk Index
+        working-directory: etl
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python fetch_fema_nri.py
+
       - name: Fetch FEMA National Risk Index
         working-directory: etl
         env:

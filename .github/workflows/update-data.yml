@@ -28,3 +28,9 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python fetch_fema_nri.py
+
+      - name: Fetch US Drought Monitor
+        working-directory: etl
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python fetch_drought_monitor.py

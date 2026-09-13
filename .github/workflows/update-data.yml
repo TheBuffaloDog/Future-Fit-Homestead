@@ -49,3 +49,15 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python fetch_county_health.py
+
+              - name: Fetch USGS Groundwater Levels
+        working-directory: etl
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python fetch_groundwater.py
+
+      - name: Fetch CDC Social Vulnerability Index
+        working-directory: etl
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python fetch_cdc_svi.py
